@@ -41,6 +41,17 @@ ol.st li{margin-bottom:8px}
 .empty{text-align:center;color:var(--mu);padding:40px 10px}
 .dice{text-align:center;padding:10px 0}
 .dice .big{font-size:4rem}
+.scan{background:var(--ac2);border-radius:14px;padding:12px;margin-bottom:6px}.scan input{background:var(--card);margin-top:8px}
+.cook{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;padding:env(safe-area-inset-top,0px) 16px calc(env(safe-area-inset-bottom,0px) + 12px)}
+.cook .top{display:flex;justify-content:space-between;align-items:center;padding:12px 0}
+.cook .body{flex:1;overflow:auto;display:flex;flex-direction:column;justify-content:center}
+.cook .step{font-size:1.6rem;line-height:1.4}
+.cook .bar{height:6px;background:var(--bd);border-radius:3px;margin-bottom:6px}.cook .bar i{display:block;height:100%;background:var(--ac);border-radius:3px}
+.cook .nav{display:flex;gap:10px;margin-top:10px}.cook .nav button{flex:1;padding:18px}
+.chk{display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--bd);font-size:1.15rem;font-weight:400;margin:0}.chk input{width:24px;height:24px;flex:none}.chk.done span{text-decoration:line-through;opacity:.5}
+details.more{margin-top:14px}details.more summary{cursor:pointer;font-weight:600;color:var(--ac)}
+a.b{display:inline-block;text-decoration:none}a.g{background:var(--ac2);color:var(--ac)}
+.hist{color:var(--mu);font-size:.9rem;margin:8px 0}
 .sync{font-size:.8rem;color:var(--mu);margin-top:20px}
 </style>
 </head>
@@ -97,6 +108,7 @@ function render(){
   if(view==='list')renderList();
   else if(view==='detail')renderDetail();
   else if(view==='rand')renderRand();
+  else if(view==='cook')renderCook();
   else renderForm();
   window.scrollTo(0,0);
 }
@@ -107,9 +119,10 @@ function renderList(){
     h+='<div class="empty">Na razie pusto.<br>Dodaj pierwsze danie, żeby zacząć.<br><br><button class="b" onclick="go(\'form\')">Dodaj danie</button></div>';
   } else {
     h+='<div class="grid">'+recipes.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'','pl')}).map(function(r){
-      return '<div class="card" onclick="open_(\''+r.id+'\')">'+thumb(r,'ph')+'<div class="t">'+esc(r.name)+'</div></div>';
+      return '<div class="card" onclick="open_(\''+r.id+'\')">'+thumb(r,'ph')+'<div class="t">'+esc(r.name)+((r.cooked&&r.cooked.length)?' <span class="hint">🍳×'+r.cooked.length+'</span>':'')+'</div></div>';
     }).join('')+'</div>';
   }
+  h+='<div class="row" style="margin-top:22px"><button class="b g" onclick="backup()">⬇️ Zapisz kopię</button><button class="b g" onclick="document.getElementById(\'rf\').click()">⬆️ Wczytaj kopię</button><input id="rf" type="file" accept=".json,application/json" onchange="restore(this)" style="display:none"></div>';
   h+='<div class="sync">'+(mode==='db'?'☁️ Wspólna baza – widzą ją wszyscy, którym udostępnisz stronę.':'📱 Dane zapisane tylko na tym urządzeniu.')+'</div>';
   app.innerHTML=h;
 }
@@ -118,11 +131,15 @@ function renderDetail(){
   var f=servings/(r.servings||1);
   var h='<button class="b g" onclick="go(\'list\')">← Wróć</button>';
   h+='<h1 style="margin-top:14px">'+esc(r.name)+'</h1>'+(r.photo?thumb(r,'hero'):'');
+  var n=(r.cooked||[]).length;
+  h+='<div class="row" style="margin-bottom:8px">'+((lines(r.ing).length||lines(r.steps).length)?'<button class="b" onclick="startCook()">👩‍🍳 Zacznij gotować</button>':'')+(r.url?'<a class="b g" href="'+esc(r.url)+'" target="_blank" rel="noopener noreferrer">🔗 Oryginał</a>':'')+'</div>';
+  h+='<div class="hist">'+(n?'🍳 Gotowane '+n+' ×, ostatnio '+new Date(r.cooked[n-1]).toLocaleDateString('pl-PL'):'Jeszcze nie gotowane')+'</div>';
+  if(!lines(r.ing).length)h+='<div class="scan">Brak składników i kroków. <a href="#" onclick="edit(\''+r.id+'\');return false" style="color:var(--ac)">Uzupełnij przepis</a></div>';
   h+='<div class="row"><span>Porcje:</span><div class="stepper"><button onclick="chg(-1)">−</button><b>'+servings+'</b><button onclick="chg(1)">+</button></div>'
    +'<span class="hint">(przepis na '+(r.servings||1)+')</span></div>';
   h+='<h2>Składniki</h2><ul class="ing">'+lines(r.ing).map(function(l){return '<li>'+scaleLine(l,f)+'</li>'}).join('')+'</ul>';
   h+='<h2>Przygotowanie</h2><ol class="st">'+lines(r.steps).map(function(l){return '<li>'+esc(l.replace(/^\d+[.)]\s*/,''))+'</li>'}).join('')+'</ol>';
-  h+='<div class="row" style="margin-top:20px"><button class="b g" onclick="edit(\''+r.id+'\')">Edytuj</button><button class="b d" onclick="del(\''+r.id+'\')">Usuń</button></div>';
+  h+='<div class="row" style="margin-top:20px"><button class="b" onclick="cooked(\''+r.id+'\')">✅ Ugotowaliśmy dziś</button>'+(n?'<button class="b g" onclick="uncook(\''+r.id+'\')">Cofnij wpis</button>':'')+'</div><div class="row" style="margin-top:12px"><button class="b g" onclick="edit(\''+r.id+'\')">Edytuj</button><button class="b d" onclick="del(\''+r.id+'\')">Usuń</button></div>';
   app.innerHTML=h;
 }
 function renderRand(){
@@ -132,18 +149,22 @@ function renderRand(){
   h+='<div class="dice">';
   if(r){h+='<div class="card" onclick="open_(\''+r.id+'\')" style="margin-bottom:16px">'+thumb(r,'ph')+'<div class="t" style="font-size:1.2rem">'+esc(r.name)+'</div></div>'
     +'<div class="row" style="justify-content:center"><button class="b" onclick="open_(\''+r.id+'\')">Zobacz przepis</button><button class="b g" onclick="roll()">Losuj ponownie</button></div>';}
-  else h+='<div class="big">🎲</div><p class="hint">Nie możecie się zdecydować? Niech zdecyduje los.</p><button class="b" onclick="roll()">Losuj danie</button>';
+  else h+='<div class="big">🎲</div><p class="hint">Nie możecie się zdecydować? Niech zdecyduje los. Częściej trafiają się dania, których dawno nie gotowaliście.</p><button class="b" onclick="roll()">Losuj danie</button>';
   app.innerHTML=h+'</div>';
 }
 function renderForm(){
   var r=editId?byId(editId):null;
   var h='<h1>'+(r?'Edytuj danie':'Nowe danie')+'</h1>';
+  if(aiOk&&!r)h+='<div class="scan"><b>✨ Wczytaj przepis ze screena</b><div class="hint">Wybierz zrzut ekranu lub wklej go (Ctrl+V). AI uzupełni pola poniżej, a Ty je sprawdzisz i poprawisz.</div><input type="file" accept="image/*" onchange="scanFile(this)"><div id="scan-st" class="hint"></div></div>';
   h+='<label>Nazwa</label><input id="f-name" value="'+esc(r?r.name:'')+'" placeholder="np. Spaghetti bolognese">';
+  h+='<label>Link do źródła (opcjonalnie)</label><input id="f-url" type="url" inputmode="url" value="'+esc(r?r.url||'':'')+'" placeholder="https://instagram.com/…">';
   h+='<label>Zdjęcie</label><input id="f-photo" type="file" accept="image/*" onchange="pickPhoto(this)"><div id="f-prev" style="margin-top:8px">'+(photo?'<img class="hero" src="'+photo+'" alt="">':'')+'</div>';
+  h+='<details class="more" id="f-more"'+(r&&(r.ing||r.steps)?' open':'')+'><summary>Składniki i kroki (możesz dopisać później)</summary>';
   h+='<label>Dla ilu porcji jest przepis?</label><input id="f-serv" type="number" min="1" value="'+(r?r.servings:2)+'">';
   h+='<label>Składniki (każdy w osobnej linii)</label><textarea id="f-ing" placeholder="200 g makaronu&#10;1/2 cebuli&#10;2 ząbki czosnku">'+esc(r?r.ing:'')+'</textarea>'
     +'<div class="hint">Zacznij linię od liczby – wtedy ilość przeliczy się przy zmianie porcji. Możesz użyć ułamków (1/2) i przecinka (0,5).</div>';
   h+='<label>Sposób przygotowania (każdy krok w osobnej linii)</label><textarea id="f-steps" placeholder="Ugotuj makaron.&#10;Podsmaż cebulę.">'+esc(r?r.steps:'')+'</textarea>';
+  h+='</details>';
   h+='<div class="row" style="margin-top:18px"><button class="b" onclick="submitForm()">Zapisz</button>'+(r?'<button class="b g" onclick="open_(\''+r.id+'\')">Anuluj</button>':'')+'</div>';
   app.innerHTML=h;
 }
@@ -156,7 +177,10 @@ function roll(){
   if(!recipes.length)return;
   var pool=recipes.filter(function(r){return r.id!==rnd});
   if(!pool.length)pool=recipes;
-  rnd=pool[Math.floor(Math.random()*pool.length)].id;renderRand();
+  var now=Date.now(),w=pool.map(function(r){var c=r.cooked||[];return c.length?1+Math.min((now-c[c.length-1])/864e5,60)/10:7});
+  var t=Math.random()*w.reduce(function(a,b){return a+b},0),i=0;
+  while(i<w.length-1&&(t-=w[i])>0)i++;
+  rnd=pool[i].id;renderRand();
 }
 function edit(id){editId=id;photo=byId(id).photo||'';view='form';render()}
 async function del(id){
@@ -179,7 +203,7 @@ async function submitForm(){
   var name=document.getElementById('f-name').value.trim();
   if(!name){alert('Podaj nazwę dania.');return}
   var r={
-    id:editId||uid(),name:name,photo:photo,
+    id:editId||uid(),name:name,photo:photo,url:normUrl(document.getElementById('f-url').value),cooked:editId?(byId(editId).cooked||[]):[],
     servings:Math.max(1,parseInt(document.getElementById('f-serv').value,10)||2),
     ing:document.getElementById('f-ing').value,steps:document.getElementById('f-steps').value
   };
@@ -189,6 +213,100 @@ async function submitForm(){
   open_(r.id);
 }
 
+var aiOk=false, sample=null;
+function scanStatus(t){var e=document.getElementById('scan-st');if(e)e.textContent=t}
+function scanFile(inp){if(inp.files&&inp.files[0])scanBlob(inp.files[0])}
+async function scanBlob(file){
+  if(!sample)return;
+  scanStatus('⏳ Odczytuję przepis…');
+  try{
+    var bmp=await new Promise(function(ok,no){var im=new Image(),u=URL.createObjectURL(file);im.onload=function(){URL.revokeObjectURL(u);ok(im)};im.onerror=no;im.src=u});
+    var s=Math.min(1,1600/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');
+    c.width=Math.round(bmp.width*s);c.height=Math.round(bmp.height*s);
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+    var blob=await new Promise(function(ok){c.toBlob(ok,'image/jpeg',0.85)});
+    var prompt='Odczytaj przepis kulinarny ze zrzutu ekranu. Zwróć wyłącznie JSON bez markdownu: {"name":string,"servings":number,"ing":string,"steps":string}. Pole ing: każdy składnik w osobnej linii (znak nowej linii), ilość na początku linii, jeśli jest podana, np. 200 g makaronu; ułamki zapisuj jako 1/2. Pole steps: każdy krok w osobnej linii, bez numeracji. Pisz po polsku, niczego nie wymyślaj ponad to, co widać na obrazie. Jeśli nie ma liczby porcji, wpisz 2.';
+    var d=await sample.json(prompt,{images:[blob],cache:false});
+    var set=function(id,v){var e=document.getElementById(id);if(e&&v!=null&&String(v).trim())e.value=v};
+    set('f-name',d.name);set('f-serv',d.servings);set('f-ing',d.ing);set('f-steps',d.steps);var mo=document.getElementById('f-more');if(mo)mo.open=true;
+    scanStatus('✅ Gotowe. Sprawdź, czy wszystko się zgadza, i dodaj zdjęcie dania.');
+  }catch(e){
+    scanStatus(e&&e.code==='not_granted'?'Brak zgody na użycie AI.':e&&e.code==='rate_limited'?'Za dużo prób, spróbuj za chwilę.':'Nie udało się odczytać przepisu. Spróbuj ostrzejszego zrzutu ekranu.');
+  }
+}
+document.addEventListener('paste',function(e){
+  if(view!=='form'||!aiOk||editId)return;
+  var items=(e.clipboardData&&e.clipboardData.items)||[];
+  for(var i=0;i<items.length;i++){if(items[i].type.indexOf('image/')===0){e.preventDefault();scanBlob(items[i].getAsFile());return}}
+});
+(async function(){
+  try{
+    if(!window.claude||!claude.use)return;
+    var sm=await claude.use('sample');
+    if(!sm)return;
+    var lim=await sm.limits();
+    if(!lim||!lim.images)return;
+    sample=sm;aiOk=true;
+    if(view==='form'&&!editId)render();
+  }catch(e){}
+})();
+function normUrl(u){u=(u||'').trim();if(!u)return '';if(!/^https?:\/\//i.test(u))u='https://'+u;try{new URL(u);return u}catch(e){return ''}}
+/* tryb gotowania */
+var cookTab='ing',cookStep=0,chk={},wl=null,tx=null;
+async function wake(){try{if(navigator.wakeLock)wl=await navigator.wakeLock.request('screen')}catch(e){}}
+function unwake(){try{wl&&wl.release()}catch(e){}wl=null}
+function startCook(){cookTab='ing';cookStep=0;chk={};view='cook';wake();render()}
+function endCook(){unwake();view='detail';render()}
+function cookTabSet(t){cookTab=t;renderCook()}
+function tick(i){chk[i]=!chk[i];renderCook()}
+function stepGo(d){var n=lines(byId(cur).steps).length;cookStep+=d;if(cookStep>=n){cooked(cur,true);return}cookStep=Math.max(0,cookStep);renderCook()}
+function renderCook(){
+  var r=byId(cur);if(!r){view='list';return render()}
+  var f=servings/(r.servings||1),st=lines(r.steps),ig=lines(r.ing),n=st.length||1;
+  var h='<div class="cook"><div class="top"><b>'+esc(r.name)+'</b><button class="b g" onclick="endCook()">✕ Zamknij</button></div>';
+  h+='<div class="row" style="margin-bottom:10px"><button class="b '+(cookTab==='ing'?'':'g')+'" onclick="cookTabSet(\'ing\')">Składniki ('+servings+' porcji)</button><button class="b '+(cookTab==='steps'?'':'g')+'" onclick="cookTabSet(\'steps\')">Kroki</button></div>';
+  if(cookTab==='ing'){
+    h+='<div class="body" style="justify-content:flex-start">'+(ig.map(function(l,i){return '<label class="chk'+(chk[i]?' done':'')+'"><input type="checkbox" '+(chk[i]?'checked ':'')+'onchange="tick('+i+')"><span>'+scaleLine(l,f)+'</span></label>'}).join('')||'<div class="empty">Brak składników.</div>')+'</div>';
+    h+='<div class="nav"><button class="b" onclick="cookTabSet(\'steps\')">Do kroków →</button></div>';
+  } else {
+    h+='<div class="bar"><i style="width:'+((cookStep+1)/n*100)+'%"></i></div><div class="hint">Krok '+(cookStep+1)+' z '+n+'</div>';
+    h+='<div class="body"><div class="step">'+esc((st[cookStep]||'Brak kroków w tym przepisie.').replace(/^\d+[.)]\s*/,''))+'</div></div>';
+    h+='<div class="nav"><button class="b g" onclick="stepGo(-1)">← Wstecz</button><button class="b" onclick="stepGo(1)">'+(cookStep>=n-1?'Ugotowane ✅':'Dalej →')+'</button></div>';
+  }
+  app.innerHTML=h+'</div>';
+}
+document.addEventListener('touchstart',function(e){tx=e.touches[0].clientX},{passive:true});
+document.addEventListener('touchend',function(e){
+  if(view!=='cook'||cookTab!=='steps'||tx==null)return;
+  var dx=e.changedTouches[0].clientX-tx,n=lines((byId(cur)||{}).steps).length;tx=null;
+  if(Math.abs(dx)>70){if(dx<0){if(cookStep<n-1)stepGo(1)}else stepGo(-1)}
+});
+document.addEventListener('visibilitychange',function(){if(view==='cook'&&!document.hidden)wake()});
+/* historia */
+async function cooked(id,fc){var r=byId(id);if(!r)return;r.cooked=(r.cooked||[]).concat(Date.now());await saveRecipe(r);if(fc)unwake();view='detail';render()}
+async function uncook(id){var r=byId(id);if(!r||!(r.cooked||[]).length)return;r.cooked=r.cooked.slice(0,-1);await saveRecipe(r);render()}
+/* kopia zapasowa */
+async function backup(){
+  var data=JSON.stringify({app:'obiady',v:1,recipes:recipes}),name='obiady-kopia-'+new Date().toISOString().slice(0,10)+'.json';
+  var file=new File([data],name,{type:'application/json'});
+  try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Kopia dań'});return}}catch(e){if(e&&e.name==='AbortError')return}
+  var a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=name;document.body.appendChild(a);a.click();a.remove();
+}
+function restore(inp){
+  var f=inp.files&&inp.files[0];if(!f)return;
+  var rd=new FileReader();
+  rd.onload=async function(){
+    try{
+      var d=JSON.parse(rd.result),list=Array.isArray(d)?d:d.recipes;
+      list=(list||[]).filter(function(x){return x&&x.id&&x.name});
+      if(!list.length){alert('W tym pliku nie znalazłem żadnych dań.');return}
+      if(!confirm('Wczytać dań: '+list.length+'? Dania o tych samych identyfikatorach zostaną zastąpione.'))return;
+      for(var i=0;i<list.length;i++)await saveRecipe(list[i]);
+      alert('Wczytano dań: '+list.length);view='list';render();
+    }catch(e){alert('To nie wygląda na plik kopii z tej aplikacji.')}
+  };
+  rd.readAsText(f);inp.value='';
+}
 document.querySelectorAll('nav button').forEach(function(b){b.onclick=function(){go(b.dataset.v)}});
 
 /* ---------- start ---------- */
