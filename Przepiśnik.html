@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Co na obiad?</title>
+<style>
+:root{--bg:#fbf6ef;--card:#fff;--tx:#2b2118;--mu:#7a6a5a;--ac:#d9622b;--ac2:#fde8dc;--bd:#eadfd1;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1b1612;--card:#272019;--tx:#f3eadf;--mu:#b3a393;--ac:#f08a52;--ac2:#3a2a20;--bd:#3a3027;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#1b1612;--card:#272019;--tx:#f3eadf;--mu:#b3a393;--ac:#f08a52;--ac2:#3a2a20;--bd:#3a3027;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.45}
+main{max-width:640px;margin:0 auto;padding:16px 16px 90px}
+h1{font-size:1.5rem;margin:8px 0 14px}
+h2{font-size:1.2rem;margin:18px 0 8px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{flex:1;background:none;border:0;padding:12px 4px;font-size:.9rem;color:var(--mu);cursor:pointer}
+nav button.on{color:var(--ac);font-weight:700}
+nav button span{display:block;font-size:1.3rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden;cursor:pointer}
+.card .ph,.hero{aspect-ratio:4/3;width:100%;object-fit:cover;background:var(--ac2);display:flex;align-items:center;justify-content:center;font-size:2.5rem}
+.card .t{padding:10px;font-weight:600;font-size:.95rem}
+.hero{border-radius:14px;margin-bottom:10px}
+button.b,a.b{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:12px 18px;font-size:1rem;cursor:pointer;font-weight:600}
+button.g{background:var(--ac2);color:var(--ac)}
+button.d{background:none;color:#c0392b;border:1px solid var(--bd)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+label{display:block;font-weight:600;margin:14px 0 4px;font-size:.9rem}
+input,textarea{width:100%;font:inherit;padding:10px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx)}
+textarea{min-height:120px}
+.hint{color:var(--mu);font-size:.85rem}
+.stepper{display:inline-flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:4px 8px}
+.stepper button{width:36px;height:36px;border-radius:50%;border:0;background:var(--ac2);color:var(--ac);font-size:1.3rem;cursor:pointer}
+.stepper b{min-width:24px;text-align:center}
+ul.ing{list-style:none;padding:0;margin:0}
+ul.ing li{padding:8px 0;border-bottom:1px solid var(--bd)}
+ol.st{padding-left:20px}
+ol.st li{margin-bottom:8px}
+.empty{text-align:center;color:var(--mu);padding:40px 10px}
+.dice{text-align:center;padding:10px 0}
+.dice .big{font-size:4rem}
+.sync{font-size:.8rem;color:var(--mu);margin-top:20px}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<nav>
+  <button data-v="list"><span>📖</span>Dania</button>
+  <button data-v="rand"><span>🎲</span>Losuj</button>
+  <button data-v="form"><span>➕</span>Dodaj</button>
+</nav>
+<script>
+var recipes = [], view = 'list', cur = null, servings = 2, photo = '', editId = null, rnd = null, mode = 'local', db = null;
+var LS = 'obiady-v1';
+var app = document.getElementById('app');
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function byId(id){return recipes.filter(function(r){return r.id===id})[0]}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+
+/* ---------- zapis ---------- */
+function loadLocal(){try{recipes=JSON.parse(localStorage.getItem(LS)||'[]')}catch(e){recipes=[]}}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(recipes))}catch(e){alert('Brak miejsca w pamięci przeglądarki – użyj mniejszego zdjęcia.')}}
+async function saveRecipe(r){
+  if(mode==='db'){try{await db.collection('recipes').doc(r.id).set(r);return}catch(e){alert('Nie udało się zapisać we wspólnej bazie.');return}}
+  var i=recipes.findIndex(function(x){return x.id===r.id});
+  if(i>=0)recipes[i]=r;else recipes.push(r);
+  saveLocal();
+}
+async function removeRecipe(id){
+  if(mode==='db'){try{await db.collection('recipes').doc(id).delete()}catch(e){}return}
+  recipes=recipes.filter(function(x){return x.id!==id});saveLocal();
+}
+
+/* ---------- składniki i proporcje ---------- */
+function fmt(n){
+  var r=Math.round(n*100)/100;
+  return String(r).replace('.',',');
+}
+function scaleLine(line,factor){
+  var m=line.match(/^\s*(\d+\s*\/\s*\d+|\d+(?:[.,]\d+)?)\s*(.*)$/);
+  if(!m)return esc(line.trim());
+  var q=m[1],v;
+  if(q.indexOf('/')>-1){var p=q.split('/');v=parseFloat(p[0])/parseFloat(p[1]);}
+  else v=parseFloat(q.replace(',','.'));
+  return '<b>'+fmt(v*factor)+'</b> '+esc(m[2]);
+}
+function lines(t){return String(t||'').split('\n').map(function(s){return s.trim()}).filter(Boolean)}
+
+/* ---------- widoki ---------- */
+function render(){
+  document.querySelectorAll('nav button').forEach(function(b){
+    b.classList.toggle('on',b.dataset.v===view||(view==='detail'&&b.dataset.v==='list'));
+  });
+  if(view==='list')renderList();
+  else if(view==='detail')renderDetail();
+  else if(view==='rand')renderRand();
+  else renderForm();
+  window.scrollTo(0,0);
+}
+function thumb(r,cls){return r.photo?'<img class="'+cls+'" src="'+r.photo+'" alt="">':'<div class="'+cls+'">🍽️</div>'}
+function renderList(){
+  var h='<h1>Nasze obiady</h1>';
+  if(!recipes.length){
+    h+='<div class="empty">Na razie pusto.<br>Dodaj pierwsze danie, żeby zacząć.<br><br><button class="b" onclick="go(\'form\')">Dodaj danie</button></div>';
+  } else {
+    h+='<div class="grid">'+recipes.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'','pl')}).map(function(r){
+      return '<div class="card" onclick="open_(\''+r.id+'\')">'+thumb(r,'ph')+'<div class="t">'+esc(r.name)+'</div></div>';
+    }).join('')+'</div>';
+  }
+  h+='<div class="sync">'+(mode==='db'?'☁️ Wspólna baza – widzą ją wszyscy, którym udostępnisz stronę.':'📱 Dane zapisane tylko na tym urządzeniu.')+'</div>';
+  app.innerHTML=h;
+}
+function renderDetail(){
+  var r=byId(cur);if(!r){view='list';return render()}
+  var f=servings/(r.servings||1);
+  var h='<button class="b g" onclick="go(\'list\')">← Wróć</button>';
+  h+='<h1 style="margin-top:14px">'+esc(r.name)+'</h1>'+(r.photo?thumb(r,'hero'):'');
+  h+='<div class="row"><span>Porcje:</span><div class="stepper"><button onclick="chg(-1)">−</button><b>'+servings+'</b><button onclick="chg(1)">+</button></div>'
+   +'<span class="hint">(przepis na '+(r.servings||1)+')</span></div>';
+  h+='<h2>Składniki</h2><ul class="ing">'+lines(r.ing).map(function(l){return '<li>'+scaleLine(l,f)+'</li>'}).join('')+'</ul>';
+  h+='<h2>Przygotowanie</h2><ol class="st">'+lines(r.steps).map(function(l){return '<li>'+esc(l.replace(/^\d+[.)]\s*/,''))+'</li>'}).join('')+'</ol>';
+  h+='<div class="row" style="margin-top:20px"><button class="b g" onclick="edit(\''+r.id+'\')">Edytuj</button><button class="b d" onclick="del(\''+r.id+'\')">Usuń</button></div>';
+  app.innerHTML=h;
+}
+function renderRand(){
+  var h='<h1>Co dziś jemy?</h1>';
+  if(!recipes.length){app.innerHTML=h+'<div class="empty">Dodaj najpierw kilka dań, a potem losuj.</div>';return}
+  var r=rnd&&byId(rnd);
+  h+='<div class="dice">';
+  if(r){h+='<div class="card" onclick="open_(\''+r.id+'\')" style="margin-bottom:16px">'+thumb(r,'ph')+'<div class="t" style="font-size:1.2rem">'+esc(r.name)+'</div></div>'
+    +'<div class="row" style="justify-content:center"><button class="b" onclick="open_(\''+r.id+'\')">Zobacz przepis</button><button class="b g" onclick="roll()">Losuj ponownie</button></div>';}
+  else h+='<div class="big">🎲</div><p class="hint">Nie możecie się zdecydować? Niech zdecyduje los.</p><button class="b" onclick="roll()">Losuj danie</button>';
+  app.innerHTML=h+'</div>';
+}
+function renderForm(){
+  var r=editId?byId(editId):null;
+  var h='<h1>'+(r?'Edytuj danie':'Nowe danie')+'</h1>';
+  h+='<label>Nazwa</label><input id="f-name" value="'+esc(r?r.name:'')+'" placeholder="np. Spaghetti bolognese">';
+  h+='<label>Zdjęcie</label><input id="f-photo" type="file" accept="image/*" onchange="pickPhoto(this)"><div id="f-prev" style="margin-top:8px">'+(photo?'<img class="hero" src="'+photo+'" alt="">':'')+'</div>';
+  h+='<label>Dla ilu porcji jest przepis?</label><input id="f-serv" type="number" min="1" value="'+(r?r.servings:2)+'">';
+  h+='<label>Składniki (każdy w osobnej linii)</label><textarea id="f-ing" placeholder="200 g makaronu&#10;1/2 cebuli&#10;2 ząbki czosnku">'+esc(r?r.ing:'')+'</textarea>'
+    +'<div class="hint">Zacznij linię od liczby – wtedy ilość przeliczy się przy zmianie porcji. Możesz użyć ułamków (1/2) i przecinka (0,5).</div>';
+  h+='<label>Sposób przygotowania (każdy krok w osobnej linii)</label><textarea id="f-steps" placeholder="Ugotuj makaron.&#10;Podsmaż cebulę.">'+esc(r?r.steps:'')+'</textarea>';
+  h+='<div class="row" style="margin-top:18px"><button class="b" onclick="submitForm()">Zapisz</button>'+(r?'<button class="b g" onclick="open_(\''+r.id+'\')">Anuluj</button>':'')+'</div>';
+  app.innerHTML=h;
+}
+
+/* ---------- akcje ---------- */
+function go(v){if(v==='form'){editId=null;photo=''}view=v;render()}
+function open_(id){cur=id;var r=byId(id);servings=r?(r.servings||2):2;view='detail';render()}
+function chg(d){servings=Math.max(1,servings+d);renderDetail()}
+function roll(){
+  if(!recipes.length)return;
+  var pool=recipes.filter(function(r){return r.id!==rnd});
+  if(!pool.length)pool=recipes;
+  rnd=pool[Math.floor(Math.random()*pool.length)].id;renderRand();
+}
+function edit(id){editId=id;photo=byId(id).photo||'';view='form';render()}
+async function del(id){
+  if(!confirm('Na pewno usunąć to danie?'))return;
+  await removeRecipe(id);view='list';render();
+}
+function pickPhoto(inp){
+  var file=inp.files&&inp.files[0];if(!file)return;
+  var img=new Image(),url=URL.createObjectURL(file);
+  img.onload=function(){
+    var max=800,s=Math.min(1,max/Math.max(img.width,img.height));
+    var c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    photo=c.toDataURL('image/jpeg',0.7);URL.revokeObjectURL(url);
+    document.getElementById('f-prev').innerHTML='<img class="hero" src="'+photo+'" alt="">';
+  };
+  img.src=url;
+}
+async function submitForm(){
+  var name=document.getElementById('f-name').value.trim();
+  if(!name){alert('Podaj nazwę dania.');return}
+  var r={
+    id:editId||uid(),name:name,photo:photo,
+    servings:Math.max(1,parseInt(document.getElementById('f-serv').value,10)||2),
+    ing:document.getElementById('f-ing').value,steps:document.getElementById('f-steps').value
+  };
+  await saveRecipe(r);
+  editId=null;photo='';
+  if(!byId(r.id)){recipes.push(r)}
+  open_(r.id);
+}
+
+document.querySelectorAll('nav button').forEach(function(b){b.onclick=function(){go(b.dataset.v)}});
+
+/* ---------- start ---------- */
+loadLocal();render();
+(async function(){
+  try{
+    if(!window.claude||!claude.use)return;
+    var d=await claude.use('db');
+    if(!d)return;
+    db=d;mode='db';
+    var local=recipes.slice();
+    db.collection('recipes').onSnapshot(function(snap){
+      recipes=snap.docs.map(function(x){return x.data()});
+      if(view==='list'||view==='rand')render();
+      else if(view==='detail'&&!byId(cur)){view='list';render()}
+    },function(){});
+    /* przenieś dania zapisane lokalnie do wspólnej bazy */
+    if(local.length){
+      for(var i=0;i<local.length;i++){try{await db.collection('recipes').doc(local[i].id).set(local[i])}catch(e){}}
+      try{localStorage.removeItem(LS)}catch(e){}
+    }
+  }catch(e){}
+})();
+</script>
+</body>
+</html>
