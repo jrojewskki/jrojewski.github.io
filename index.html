@@ -52,11 +52,21 @@ ol.st li{margin-bottom:8px}
 details.more{margin-top:14px}details.more summary{cursor:pointer;font-weight:600;color:var(--ac)}
 a.b{display:inline-block;text-decoration:none}a.g{background:var(--ac2);color:var(--ac)}
 .hist{color:var(--mu);font-size:.9rem;margin:8px 0}
+#print{display:none}
+@media print{
+ html,body{background:#fff!important;color:#000!important}
+ body>*:not(#print){display:none!important}
+ #print{display:block;font-family:Georgia,serif;font-size:12pt;line-height:1.5}
+ #print h1{font-size:22pt;margin:0 0 4pt}#print h2{font-size:14pt;margin:16pt 0 6pt;border-bottom:1px solid #999}
+ #print img{max-width:100%;max-height:9cm;object-fit:cover;border-radius:6px;margin:8pt 0}
+ #print li{margin-bottom:4pt;break-inside:avoid}#print .src{margin-top:18pt;font-size:10pt;color:#555;word-break:break-all}
+}
 .sync{font-size:.8rem;color:var(--mu);margin-top:20px}
 </style>
 </head>
 <body>
 <main id="app"></main>
+<div id="print"></div>
 <nav>
   <button data-v="list"><span>📖</span>Dania</button>
   <button data-v="rand"><span>🎲</span>Losuj</button>
@@ -68,7 +78,7 @@ var LS = 'obiady-v1';
 var app = document.getElementById('app');
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function byId(id){return recipes.filter(function(r){return r.id===id})[0]}
+function byId(id){return (sharedR&&sharedR.id===id)?sharedR:recipes.filter(function(r){return r.id===id})[0]}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 
 /* ---------- zapis ---------- */
@@ -139,7 +149,7 @@ function renderDetail(){
    +'<span class="hint">(przepis na '+(r.servings||1)+')</span></div>';
   h+='<h2>Składniki</h2><ul class="ing">'+lines(r.ing).map(function(l){return '<li>'+scaleLine(l,f)+'</li>'}).join('')+'</ul>';
   h+='<h2>Przygotowanie</h2><ol class="st">'+lines(r.steps).map(function(l){return '<li>'+esc(l.replace(/^\d+[.)]\s*/,''))+'</li>'}).join('')+'</ol>';
-  h+='<div class="row" style="margin-top:20px"><button class="b" onclick="cooked(\''+r.id+'\')">✅ Ugotowaliśmy dziś</button>'+(n?'<button class="b g" onclick="uncook(\''+r.id+'\')">Cofnij wpis</button>':'')+'</div><div class="row" style="margin-top:12px"><button class="b g" onclick="edit(\''+r.id+'\')">Edytuj</button><button class="b d" onclick="del(\''+r.id+'\')">Usuń</button></div>';
+  if(sharedR&&r===sharedR)h+='<div class="row" style="margin-top:20px"><button class="b" onclick="saveShared()">💾 Zapisz do mojej listy</button></div><div class="hint">To przepis udostępniony przez link. Możesz od razu gotować albo zapisać go u siebie.</div>';else h+='<div class="row" style="margin-top:20px"><button class="b" onclick="cooked(\''+r.id+'\')">✅ Ugotowaliśmy dziś</button>'+(n?'<button class="b g" onclick="uncook(\''+r.id+'\')">Cofnij wpis</button>':'')+'</div><div class="row" style="margin-top:12px"><button class="b g" onclick="shareText(\''+r.id+'\')">💬 Wyślij tekst</button><button class="b g" onclick="makePdf(\''+r.id+'\')">📄 Utwórz PDF</button><button class="b g" onclick="edit(\''+r.id+'\')">Edytuj</button><button class="b d" onclick="del(\''+r.id+'\')">Usuń</button></div>';
   app.innerHTML=h;
 }
 function renderRand(){
@@ -282,8 +292,56 @@ document.addEventListener('touchend',function(e){
   if(Math.abs(dx)>70){if(dx<0){if(cookStep<n-1)stepGo(1)}else stepGo(-1)}
 });
 document.addEventListener('visibilitychange',function(){if(view==='cook'&&!document.hidden)wake()});
+/* udostępnianie linkiem */
+var sharedR=null;
+function enc(r){var o={n:r.name,s:r.servings,i:r.ing,t:r.steps,u:r.url||''},b=new TextEncoder().encode(JSON.stringify(o)),s='';b.forEach(function(x){s+=String.fromCharCode(x)});return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function dec(c){c=c.replace(/-/g,'+').replace(/_/g,'/');var s=atob(c),b=new Uint8Array(s.length);for(var i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return JSON.parse(new TextDecoder().decode(b))}
+async function shareLink(id){
+  var r=byId(id),link=location.origin+location.pathname+'#p'+enc(r);
+  try{if(navigator.share){await navigator.share({title:r.name,text:r.name+' – przepis',url:link});return}}catch(e){if(e&&e.name==='AbortError')return}
+  try{await navigator.clipboard.writeText(link);alert('Link skopiowany. Wklej go w wiadomości.')}catch(e){prompt('Skopiuj link:',link)}
+}
+function loadShared(){
+  var h=location.hash;if(h.indexOf('#p')!==0||h.length<4)return;
+  try{var o=dec(h.slice(2));if(!o||!o.n)return;
+    sharedR={id:'shared',name:String(o.n),servings:Math.max(1,parseInt(o.s,10)||2),ing:String(o.i||''),steps:String(o.t||''),url:normUrl(o.u),photo:'',cooked:[]};
+    open_('shared');
+  }catch(e){}
+}
+async function saveShared(){
+  var r=Object.assign({},sharedR,{id:uid(),cooked:[]});
+  await saveRecipe(r);if(!byId(r.id))recipes.push(r);
+  sharedR=null;try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}
+  open_(r.id);
+}
+window.addEventListener('hashchange',loadShared);
+/* udostępnianie tekstem */
+function plain(l,f){var d=document.createElement('div');d.innerHTML=scaleLine(l,f);return d.textContent}
+async function shareText(id){
+  var r=byId(id),base=r.servings||1,s=(cur===id&&view==='detail')?servings:base,f=s/base;
+  var ig=lines(r.ing),st=lines(r.steps),t='🍽️ '+r.name+' ('+s+' porcji)\n\n';
+  if(ig.length)t+='Składniki:\n'+ig.map(function(l){return '• '+plain(l,f)}).join('\n')+'\n\n';
+  if(st.length)t+='Przygotowanie:\n'+st.map(function(l,i){return (i+1)+'. '+l.replace(/^\d+[.)]\s*/,'')}).join('\n')+'\n';
+  if(r.url)t+='\nOryginał: '+r.url;
+  try{if(navigator.share){await navigator.share({title:r.name,text:t});return}}catch(e){if(e&&e.name==='AbortError')return}
+  try{await navigator.clipboard.writeText(t);alert('Przepis skopiowany. Wklej go w wiadomości.')}catch(e){prompt('Skopiuj przepis:',t)}
+}
+/* PDF */
+function makePdf(id){
+  var r=byId(id);if(!r)return;
+  var base=r.servings||1,s=(cur===id&&view==='detail')?servings:base,f=s/base;
+  var ig=lines(r.ing),st=lines(r.steps);
+  var h='<h1>'+esc(r.name)+'</h1><p>Porcje: '+s+'</p>'+(r.photo?'<img src="'+r.photo+'" alt="">':'');
+  if(ig.length)h+='<h2>Składniki</h2><ul>'+ig.map(function(l){return '<li>'+scaleLine(l,f)+'</li>'}).join('')+'</ul>';
+  if(st.length)h+='<h2>Przygotowanie</h2><ol>'+st.map(function(l){return '<li>'+esc(l.replace(/^\d+[.)]\s*/,''))+'</li>'}).join('')+'</ol>';
+  if(r.url)h+='<p class="src">Źródło: '+esc(r.url)+'</p>';
+  document.getElementById('print').innerHTML=h;
+  var prev=document.title;document.title=r.name;
+  window.print();
+  setTimeout(function(){document.title=prev},1500);
+}
 /* historia */
-async function cooked(id,fc){var r=byId(id);if(!r)return;r.cooked=(r.cooked||[]).concat(Date.now());await saveRecipe(r);if(fc)unwake();view='detail';render()}
+async function cooked(id,fc){var r=byId(id);if(!r)return;if(sharedR&&r===sharedR){unwake();view='detail';render();return}r.cooked=(r.cooked||[]).concat(Date.now());await saveRecipe(r);if(fc)unwake();view='detail';render()}
 async function uncook(id){var r=byId(id);if(!r||!(r.cooked||[]).length)return;r.cooked=r.cooked.slice(0,-1);await saveRecipe(r);render()}
 /* kopia zapasowa */
 async function backup(){
@@ -310,7 +368,7 @@ function restore(inp){
 document.querySelectorAll('nav button').forEach(function(b){b.onclick=function(){go(b.dataset.v)}});
 
 /* ---------- start ---------- */
-loadLocal();render();
+loadLocal();render();loadShared();
 (async function(){
   try{
     if(!window.claude||!claude.use)return;
